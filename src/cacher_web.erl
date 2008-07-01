@@ -44,8 +44,10 @@ find(Req) ->
     RequestElements = request_elements(Req),
     cacher_database ! { find, RequestElements, self() },
     receive
-        {found, ContentType, ETag, Cache} -> 
-            Req:ok(ContentType, ["ETag", ETag], Cache);
+        {found,  Cache} -> 
+            %io:format("found content type: ~p~ndata: ~p~n", [ Cache#cache.content_type,  Cache#cache.data ]),
+            % TODO Etag
+            Req:ok({Cache#cache.content_type, [], Cache#cache.data});
         not_found -> 
             Req:not_found();
         _ ->
@@ -67,14 +69,14 @@ expire(Req) ->
 store(Req) ->
     RequestFilter = request_elements(Req),
     Cache = #cache{ request_filter = RequestFilter,
-                    data = "",
-                    identifiers = ""
+                    data = <<"">>,
+                    identifiers = <<"">>
                   },
 
     Callback = fun(Next) -> multipart_callback(Next, Cache, nil) end,
     mochiweb_multipart:parse_multipart_request(Req, Callback),
     Req:ok({"text/plain", [], 
-      io_lib:format("stored: ~p ~n", [Cache#cache.request_filter])
+      io_lib:format("stored: ~p ~n", [Cache])
     }).
 
 request_elements(Req) ->
@@ -93,12 +95,12 @@ update_multipart_state(Headers, Cache) ->
         {"form-data", FormData} ->
               case proplists:get_value("name", FormData) of
                   "identifiers" ->
-                      UpdatedCache = Cache#cache{identifiers = ""},
+                      UpdatedCache = Cache#cache{identifiers = <<"">>},
                       {identifiers, UpdatedCache};
                   "cache" ->
                       {CType, _} = proplists:get_value("content-type", Headers),
                       UpdatedCache = Cache#cache{ content_type = CType, 
-                                                  data = ""},
+                                                  data = <<"">>},
                       {cache, UpdatedCache};
                   _ ->
                       {unknown, Cache}
@@ -115,17 +117,23 @@ multipart_callback(Next, Cache, LastName) ->
         {body, Data} ->
             case LastName of
                 identifiers ->
-                    Identifiers = Cache#cache.identifiers ++ Data,
+                    Identifiers = <<(Cache#cache.identifiers)/binary, Data/binary>>,
+                    io:format("got ids: ~p~n", [Identifiers]),
                     {identifiers, Cache#cache{identifiers = Identifiers}};
                 cache ->
-                    {cache, Cache#cache{data = Cache#cache.data ++ Data }};
+                    %UpdatedData = Data,
+                    UpdatedData = <<(Cache#cache.data)/binary, Data/binary>>,
+                    io:format("got cache: ~p~n", [UpdatedData]),
+                    {cache, Cache#cache{data =  UpdatedData}};
                 X -> {X, Cache}
             end;
 
         body_end -> 
             if 
                 Cache#cache.data =/= "" andalso Cache#cache.identifiers =/= "" -> 
-                    IDs = parse_identifiers(Cache#cache.identifiers),
+                    IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
+                    % io:format("ids: ~p~n", [IDs]),
+                    % io:format("cache: ~p~n", [IDs]),
                     cacher_database ! { store, Cache#cache{identifiers = IDs} };
                 true -> 
                     erlang_can_suck_my_dick_for_forcing_me_to_put_this_here

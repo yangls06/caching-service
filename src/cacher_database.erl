@@ -24,16 +24,18 @@ loop(RequestDatabase, IdDatabase) ->
 
         { expire, Identifiers, Client } ->
             io:format("expire: ~p~n", [Identifiers]),
-            Client ! not_found;
+            Client ! not_found,
+            loop(RequestDatabase, IdDatabase);
         { find, RequestElements, Client } ->
-            io:format("find: ~p~n", [RequestElements]),
+            % io:format("find: ~p~n", [RequestElements]),
             Path = proplist_to_path(RequestElements),
-            case path_tree:find(Path) of 
+            case path_tree:find(RequestDatabase, Path) of 
                 not_found -> 
                     Client ! not_found;
                 {found, Cache} -> 
                     Client ! {found, Cache} 
-            end
+            end,
+            loop(RequestDatabase, IdDatabase);
         Unknown ->
             io:format("unknown message to database: ~p~n", [Unknown]),
             loop(RequestDatabase, IdDatabase)

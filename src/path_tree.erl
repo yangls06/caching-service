@@ -1,10 +1,23 @@
 -module(path_tree).
 -author('Ryah Dahl <ry@tinyclouds.org>').
 
--export([create_subtree/2, store/3]).
+-export([create_subtree/2, store/3, find/2]).
 -export([test/0]).
 
 -record(branch, { name, data, subtree }).
+
+find([], _) -> not_found;
+find([Branch|RestOfTree], Path) ->
+    [PathComponent|RestOfPath] = Path, 
+    if Branch#branch.name == PathComponent ->
+        if RestOfPath == [] ->
+            {found, Branch#branch.data};
+        true ->
+            find(Branch#branch.subtree, RestOfPath)
+        end;
+    true -> 
+        find(RestOfTree, Path)
+    end.
 
 create_subtree([LastPathComponent], Data) -> 
   [#branch{ name = LastPathComponent, 

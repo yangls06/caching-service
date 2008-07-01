@@ -1,2 +1,1 @@
-
--record(cache, {request_filter, ids, content_type, data}).
+-record(cache, {request_filter, identifiers, content_type, data}).

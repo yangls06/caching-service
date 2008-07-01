@@ -7,6 +7,7 @@
 -author('Ryah Dahl <ry@tinyclouds.org>').
 -export([start/1, stop/0, loop/1]).
 -include_lib("cacher.hrl").
+ 
 
 %% External API
 
@@ -23,12 +24,11 @@ stop() ->
     mochiweb_http:stop(?MODULE).
 
 loop(Req) ->
-    "/" ++ Path = Req:get(path),
     case Req:get(method) of
         Method when Method =:= 'GET'; Method =:= 'HEAD' ->
             find(Req);
         'POST' ->
-            case Path of
+            case Req:get(path) of
                 "/_expire" ->
                     expire(Req);
                 _ ->
@@ -41,35 +41,104 @@ loop(Req) ->
 %% Internal API
 
 find(Req) ->
-    Req:respond({501, [], []}).
+    RequestElements = request_elements(Req),
+    cacher_database ! { find, RequestElements, self() },
+    receive
+        {found, ContentType, ETag, Cache} -> 
+            Req:ok(ContentType, ["ETag", ETag], Cache);
+        not_found -> 
+            Req:not_found();
+        _ ->
+            Req:respond({500, [], []})
+    end.
 
 expire(Req) ->
-    Req:respond({501, [], []}).
+    IdentifierString = proplists:get_value("identifiers", Req:parse_qs()),
+    Identifiers = parse_identifiers(IdentifierString),
+    cacher_database ! { expire, Identifiers, self() },
+    receive
+        200 -> 
+            Req:ok("text/plain", [], "expired");
+        _ ->
+            Req:respond({500, [], []})
+    end.
+
 
 store(Req) ->
-    HeaderList = header_list(Req),
-    ContentType = proplists:get_value('Content-Type', HeaderList),
-    NotReserved = fun 
-      ({'Content-Type', _}) -> false;
-      ({'Content-Length', _}) -> false;
-      (_) -> true
-    end,
-    RequestFilter = lists:sort(lists:filter(NotReserved, HeaderList)),
-
-    Data = "data",
-    Ids = [123],
-
-    Cache = #cache{ request_filter = RequestFilter, 
-                    ids = Ids, 
-                    content_type =ContentType, 
-                    data = Data 
+    RequestFilter = request_elements(Req),
+    Cache = #cache{ request_filter = RequestFilter,
+                    data = "",
+                    identifiers = ""
                   },
-    cacher_database ! { store, Cache }, 
 
+    Callback = fun(Next) -> multipart_callback(Next, Cache, nil) end,
+    mochiweb_multipart:parse_multipart_request(Req, Callback),
     Req:ok({"text/plain", [], 
-      io_lib:format("stored: ~p ~n", [RequestFilter])
+      io_lib:format("stored: ~p ~n", [Cache#cache.request_filter])
     }).
 
+request_elements(Req) ->
+    HeaderList = header_list(Req),
+    NotReserved = fun ({Key, _}) ->
+      case Key of
+        'Content-Type' -> false;
+        'Content-Length' -> false;
+        _ -> true
+      end
+    end,
+    lists:sort(lists:filter(NotReserved, HeaderList)).
+
+update_multipart_state(Headers, Cache) ->
+    case proplists:get_value("content-disposition", Headers) of
+        {"form-data", FormData} ->
+              case proplists:get_value("name", FormData) of
+                  "identifiers" ->
+                      UpdatedCache = Cache#cache{identifiers = ""},
+                      {identifiers, UpdatedCache};
+                  "cache" ->
+                      {CType, _} = proplists:get_value("content-type", Headers),
+                      UpdatedCache = Cache#cache{ content_type = CType, 
+                                                  data = ""},
+                      {cache, UpdatedCache};
+                  _ ->
+                      {unknown, Cache}
+              end;
+        _ ->  {unknown, Cache}
+    end.
+
+multipart_callback(Next, Cache, LastName) ->
+    {Name, UpdatedCache} =
+    case Next of
+        {headers, Headers} ->
+            update_multipart_state(Headers, Cache);
+
+        {body, Data} ->
+            case LastName of
+                identifiers ->
+                    Identifiers = Cache#cache.identifiers ++ Data,
+                    {identifiers, Cache#cache{identifiers = Identifiers}};
+                cache ->
+                    {cache, Cache#cache{data = Cache#cache.data ++ Data }};
+                X -> {X, Cache}
+            end;
+
+        body_end -> 
+            if 
+                Cache#cache.data =/= "" andalso Cache#cache.identifiers =/= "" -> 
+                    IDs = parse_identifiers(Cache#cache.identifiers),
+                    cacher_database ! { store, Cache#cache{identifiers = IDs} };
+                true -> 
+                    erlang_can_suck_my_dick_for_forcing_me_to_put_this_here
+            end,
+            {nil, Cache};
+
+        _ -> 
+            {nil, Cache}
+    end,
+    fun(N) -> multipart_callback(N, UpdatedCache, Name) end.
+
+
+parse_identifiers(String) -> string:tokens(String, " ,").
 
 header_list(Req) ->
   HeaderList = mochiweb_headers:to_list(Req:get(headers)),

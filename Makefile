@@ -3,3 +3,6 @@ all:
 
 clean:
 	(cd src;$(MAKE) clean)
+
+test:
+	(cd src;$(MAKE) test)

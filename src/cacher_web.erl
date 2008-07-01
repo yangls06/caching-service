@@ -5,20 +5,19 @@
 
 -module(cacher_web).
 -author('Ryah Dahl <ry@tinyclouds.org>').
-
 -export([start/1, stop/0, loop/1]).
+-include_lib("cacher.hrl").
 
 %% External API
 
 start(Options) ->
     cacher_database:start(),
 
-    {DocRoot, Options1} = get_option(docroot, Options),
 
     Loop = fun (Req) ->
                    ?MODULE:loop(Req)
            end,
-    mochiweb_http:start([{name, ?MODULE}, {loop, Loop} | Options1]).
+    mochiweb_http:start([{name, ?MODULE}, {loop, Loop} | Options]).
 
 stop() ->
     mochiweb_http:stop(?MODULE).
@@ -48,22 +47,40 @@ expire(Req) ->
     Req:respond({501, [], []}).
 
 store(Req) ->
-    Params = Req:parse_qs(),
-    Cookies = Req:parse_cookie(),
-    Path = Req:get(path),
-    HeaderList = mochiweb_headers:to_list(Req:get(headers)),
-    RequestFilter = lists:sort([ {'Path', Path}
-                               , {'Params', Params}
-                               , {'Cookies', Cookies} 
-                               | HeaderList ]),
+    HeaderList = header_list(Req),
+    ContentType = proplists:get_value('Content-Type', HeaderList),
+    NotReserved = fun 
+      ({'Content-Type', _}) -> false;
+      ({'Content-Length', _}) -> false;
+      (_) -> true
+    end,
+    RequestFilter = lists:sort(lists:filter(NotReserved, HeaderList)),
+
     Data = "data",
     Ids = [123],
-    ContentType = "text/html",
 
-    cacher_database ! { store, RequestFilter, Ids, ContentType, Data }, 
+    Cache = #cache{ request_filter = RequestFilter, 
+                    ids = Ids, 
+                    content_type =ContentType, 
+                    data = Data 
+                  },
+    cacher_database ! { store, Cache }, 
+
     Req:ok({"text/plain", [], 
       io_lib:format("stored: ~p ~n", [RequestFilter])
     }).
 
-get_option(Option, Options) ->
-    {proplists:get_value(Option, Options), proplists:delete(Option, Options)}.
+
+header_list(Req) ->
+  HeaderList = mochiweb_headers:to_list(Req:get(headers)),
+
+  ValueNotEmpty = fun
+    ({_,  []}) -> false;
+    (_) -> true        
+  end,
+  ExtraElements = lists:filter( ValueNotEmpty,
+    [{'Path', Req:get(path)}, 
+     {'Params', Req:parse_qs()}, 
+     {'Cookies', Req:parse_cookie()}]
+  ),
+  ExtraElements ++ HeaderList.

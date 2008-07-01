@@ -6,6 +6,7 @@
 -module(cacher).
 -author('author <author@example.com>').
 -export([start/0, stop/0]).
+-export([test/0]).
 
 ensure_started(App) ->
     case application:start(App) of
@@ -28,3 +29,10 @@ stop() ->
     Res = application:stop(cacher),
     application:stop(crypto),
     Res.
+
+test() ->
+  ok = path_tree:test(),
+  ok = cacher_database:test(),
+  io:format("Tests passed.~n"),
+  ok.
+

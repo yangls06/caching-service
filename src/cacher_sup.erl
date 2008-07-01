@@ -42,10 +42,7 @@ upgrade() ->
 %% @doc supervisor callback.
 init([]) ->
     Ip = case os:getenv("MOCHIWEB_IP") of false -> "0.0.0.0"; Any -> Any end,   
-    WebConfig = [
-         {ip, Ip},
-                 {port, 8000},
-                 {docroot, cacher_deps:local_path(["priv", "www"])}],
+    WebConfig = [ {ip, Ip}, {port, 8000} ],
     Web = {cacher_web,
            {cacher_web, start, [WebConfig]},
            permanent, 5000, worker, dynamic},

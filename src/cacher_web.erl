@@ -42,6 +42,7 @@ loop(Req) ->
 
 find(Req) ->
     RequestElements = request_elements(Req),
+    io:format("find. request elements = ~p~n", [RequestElements]),
     cacher_database ! { find, RequestElements, self() },
     receive
     {ok,  Cache} -> 
@@ -55,35 +56,35 @@ find(Req) ->
         Req:respond({500, [], []})
     end.
 
+store(Req) ->
+    RequestElements = request_elements(Req),
+    {RequestFilter, ContentType, Identifiers} 
+        = filter_request_elements(RequestElements),
+    io:format("stored. request filter = ~p~n", [RequestFilter]),
+    Cache = #cache{ request_filter = RequestFilter,
+                    data = Req:recv_body(),
+                    content_type = ContentType,
+                    identifiers = Identifiers,
+                    digest = filter_digest(RequestFilter)
+                  },
+    %io:format("cache digest = ~p~n", [Cache#cache.digest]),
+    cacher_database ! {store, Cache},
+    Req:ok({"text/plain", [], "stored"}).
+
 expire(Req) ->
     IdentifierString = proplists:get_value("identifiers", Req:parse_qs()),
     Identifiers = parse_identifiers(IdentifierString),
     cacher_database ! { expire, Identifiers, self() },
     receive
-    {ok, Caches} -> 
-        Req:ok({"text/plain", [], io_lib:format("expired: ~p", [Caches])});
+    ok -> 
+        Req:ok({"text/plain", [], "ok"});
     _ ->
         Req:respond({500, [], []})
     end.
 
 
-store(Req) ->
-    RequestFilter = request_elements(Req),
-    Cache = #cache{ request_filter = RequestFilter,
-                    data = <<"">>,
-                    identifiers = <<"">>,
-                    digest = filter_digest(RequestFilter)
-                  },
-
-    Callback = fun(Next) -> 
-        multipart_callback(Next, Cache, nil) 
-    end,
-    mochiweb_multipart:parse_multipart_request(Req, Callback),
-    Req:ok({"text/plain", [], "stored"}).
-
 
 request_elements(Req) ->
-
     MochiList = mochiweb_headers:to_list(Req:get(headers)),
     ToLowerString = fun(Key) ->
         String = if is_atom(Key) ->
@@ -94,7 +95,6 @@ request_elements(Req) ->
         string:to_lower(String)
     end,
     H = [ {ToLowerString(Key), Value} || {Key,Value} <- MochiList],
-
     ValueNotEmpty = fun
     ({_,  []}) -> false;
     (_) -> true        
@@ -104,94 +104,29 @@ request_elements(Req) ->
         {"params", Req:parse_qs()}, 
         {"cookies", Req:parse_cookie()}
     ]),
+    lists:sort(ExtraElements ++ H).
 
-    HeaderList = ExtraElements ++ H,
-
-    NotReserved = fun ({Key, _}) ->
-        case Key of
-        "content-type" -> false;
-        "content-length" -> false;
-        _ -> true
-        end
-    end,
-    lists:sort(lists:filter(NotReserved, HeaderList)).
-
-update_multipart_state(Headers, Cache) ->
-    case proplists:get_value("content-disposition", Headers) of
-    {"form-data", FormData} ->
-          case proplists:get_value("name", FormData) of
-          "identifiers" ->
-              UpdatedCache = Cache#cache{identifiers = <<"">>},
-              {identifiers, UpdatedCache};
-          "cache" ->
-              {ContentType, _} = proplists:get_value("content-type", Headers),
-              % Always reset the data, incase we're getting multiple
-              % we'll just write over the last.
-              UpdatedCache = Cache#cache{ 
-                  content_type = ContentType, 
-                  data = <<"">>
-              },
-              {cache, UpdatedCache};
-          _ ->
-              {unknown, Cache}
-          end;
-    _ ->  {unknown, Cache}
-    end.
-
-multipart_callback(Next, Cache, LastName) ->
-    {Name, UpdatedCache} =
-    case Next of
-    {headers, Headers} ->
-        update_multipart_state(Headers, Cache);
-
-    {body, Data} ->
-        case LastName of
-        identifiers ->
-            Identifiers = <<(Cache#cache.identifiers)/binary, Data/binary>>,
-            % io:format("got ids: ~p~n", [Identifiers]),
-            {identifiers, Cache#cache{identifiers = Identifiers}};
-        cache ->
-            %UpdatedData = Data,
-            UpdatedData = <<(Cache#cache.data)/binary, Data/binary>>,
-            % io:format("got cache: ~p~n", [UpdatedData]),
-            {cache, Cache#cache{data =  UpdatedData}};
-        X -> {X, Cache}
-        end;
-
-    body_end -> 
-        if Cache#cache.data =/= "" andalso Cache#cache.identifiers =/= "" -> 
-            % Default ContentType is "text/html" if one wasn't set
-            % in the upload
-            % TODO try to guess based on file extension?
-            ContentType = case Cache#cache.content_type of
-            undefined -> 
-                "text/html";
-            _ ->
-                Cache#cache.content_type
-            end,
-
-            IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
-
-            % io:format("ids: ~p~n", [IDs]),
-            % io:format("cache: ~p~n", [Cache#cache.data]),
-            cacher_database ! { store, 
-                Cache#cache{identifiers = IDs, content_type = ContentType} 
-            };
-        true -> ok
-        end,
-        {nil, Cache};
-
-    _ -> 
-        {nil, Cache}
-    end,
-    fun(N) -> multipart_callback(N, UpdatedCache, Name) end.
-
+filter_request_elements(RequestElements) ->
+    ContentType = proplists:get_value("content-type", RequestElements),
+    Identifiers = parse_identifiers(
+        proplists:get_value("x-cache-identifiers", RequestElements)
+    ),
+    R1 = proplists:delete("content-type", RequestElements),
+    R2 = proplists:delete("x-cache-identifiers", R1),
+    R3 = proplists:delete("content-length", R2),
+    R4 = proplists:delete("connection", R3),
+    % reject this for now
+    % TODO change accept value into an array?
+    R5 = proplists:delete("accept", R4),
+    RequestFilter = R5,
+    {RequestFilter, ContentType, Identifiers}.
 
 parse_identifiers(String) -> string:tokens(String, " ,").
 
 filter_digest(RequestFilter) ->
     %crypto:start(),
     Path = cacher_database:proplist_to_path(RequestFilter),
+    %io:format("path = ~p~n", [Path]),
     StringRepresentation = string:join(Path, "::"),
     crypto:sha(StringRepresentation).
 

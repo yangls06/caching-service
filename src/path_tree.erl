@@ -9,17 +9,29 @@
 
 -record(branch, { name, data, subtree }).
 
+find(_, []) -> not_found;
 find([], _) -> not_found;
-find([Branch|RestOfTree], Path) ->
+% totally unintellegable, i know. sorry
+find(Tree, Path) ->
+    %io:format("find: path ~p~ntree ~p~n", [Path, Tree]),
+    [Branch|RestOfTree] = Tree, 
     [PathComponent|RestOfPath] = Path, 
     if Branch#branch.name == PathComponent ->
-        if RestOfPath == [] ->
+        if 
+        RestOfPath == [] ->
+            {ok, Branch#branch.data};
+        Branch#branch.subtree == [] ->
             {ok, Branch#branch.data};
         true ->
             find(Branch#branch.subtree, RestOfPath)
         end;
     true -> 
-        find(RestOfTree, Path)
+        case find(RestOfTree, Path) of
+        not_found ->
+            find(Tree, RestOfPath);
+        X -> 
+            X
+        end
     end.
 
 create_subtree([LastPathComponent], Data) -> 

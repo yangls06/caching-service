@@ -89,6 +89,8 @@ store(Cache, RequestDatabase, IdDatabase, CacheDatabase) ->
     % io:format("store: ~p~n~n", [CacheDatabase]),
 
     UpdatedRequestDatabase = path_tree:store(RequestDatabase, Path, Digest),
+    io:format("requestdb: ~p~n~n", [UpdatedRequestDatabase]),
+
 
     AppendDigest = fun (Id, DatabaseAcc) ->
         case dict:find(Id, DatabaseAcc) of

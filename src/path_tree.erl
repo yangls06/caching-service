@@ -23,55 +23,50 @@ find([Branch|RestOfTree], Path) ->
     end.
 
 create_subtree([LastPathComponent], Data) -> 
-  [#branch{ name = LastPathComponent, 
-            subtree = [], 
-            data = Data 
-          }
-  ];
+    [#branch{ name = LastPathComponent, 
+              subtree = [], 
+              data = Data 
+    }];
 
 create_subtree([PathComponent | RestOfPath], Data) ->
-  [#branch{ name = PathComponent, 
-            subtree = create_subtree(RestOfPath, Data), 
-            data = nil 
-          }
-  ].
+    [#branch{ name = PathComponent, 
+              subtree = create_subtree(RestOfPath, Data), 
+              data = nil 
+    }].
 
 store(Tree, [], _) -> Tree;
 
-store([], Path, Data) -> 
-  create_subtree(Path, Data);
+store([], Path, Data) -> create_subtree(Path, Data);
 
 store([Branch | RestOfTree], Path, Data) ->
-  %io:format("~nBranch: ~p~nPath: ~p~n~n", [Branch, Path]),
-  [PathComponent | RestOfPath] = Path,
-  case Branch#branch.name == PathComponent of
+    %io:format("~nBranch: ~p~nPath: ~p~n~n", [Branch, Path]),
+    [PathComponent | RestOfPath] = Path,
+    case Branch#branch.name == PathComponent of
     true ->
-      NewBranch = 
-      case RestOfPath of 
+        NewBranch = case RestOfPath of 
         [] ->
-          Branch#branch{ data = Data };
+            Branch#branch{ data = Data };
         _ ->
-          NewSubTree = store(Branch#branch.subtree, RestOfPath, Data),
-          Branch#branch{ subtree = NewSubTree }
-      end,
-      [NewBranch | RestOfTree];
+            NewSubTree = store(Branch#branch.subtree, RestOfPath, Data),
+            Branch#branch{ subtree = NewSubTree }
+        end,
+        [NewBranch | RestOfTree];
     false -> 
-      [Branch | store(RestOfTree, Path, Data)]
-  end.
+        [Branch | store(RestOfTree, Path, Data)]
+    end.
 
 test() -> 
-  ok = test_storage(),
-  ok.
+    ok = test_storage(),
+    ok.
 
 test_storage() -> 
     [ #branch{ name = "hello", data = "egg", subtree = [] } ] 
-      = store([], ["hello"], "egg"),
+    = store([], ["hello"], "egg"),
 
     HelloWorldDB = 
-      [ #branch{ name = "hello", data = nil, subtree = 
-          [ #branch{ name = "world", data = "egg", subtree = [] }]
-        }
-      ],
+    [ #branch{ name = "hello", data = nil, subtree = 
+        [ #branch{ name = "world", data = "egg", subtree = [] }]
+    }],
 
     HelloWorldDB = store([], ["hello", "world"], "egg"),
 

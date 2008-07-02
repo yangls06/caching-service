@@ -104,9 +104,13 @@ update_multipart_state(Headers, Cache) ->
               UpdatedCache = Cache#cache{identifiers = <<"">>},
               {identifiers, UpdatedCache};
           "cache" ->
-              {CType, _} = proplists:get_value("content-type", Headers),
-              UpdatedCache = Cache#cache{ content_type = CType, 
-                                          data = <<"">>},
+              {ContentType, _} = proplists:get_value("content-type", Headers),
+              % Always reset the data, incase we're getting multiple
+              % we'll just write over the last.
+              UpdatedCache = Cache#cache{ 
+                  content_type = ContentType, 
+                  data = <<"">>
+              },
               {cache, UpdatedCache};
           _ ->
               {unknown, Cache}
@@ -138,9 +142,22 @@ multipart_callback(Next, Cache, LastName) ->
         if Cache#cache.data =/= "" andalso Cache#cache.identifiers =/= "" -> 
             %IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
             IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
+
+            % Default ContentType is "text/html" if one wasn't set
+            % in the upload
+            % TODO try to guess based on file extension?
+            ContentType = case Cache#cache.content_type of
+            undefined -> 
+                "text/html";
+            _ ->
+                Cache#cache.content_type
+            end,
+
             % io:format("ids: ~p~n", [IDs]),
             % io:format("cache: ~p~n", [Cache#cache.data]),
-            cacher_database ! { store, Cache#cache{identifiers = IDs} };
+            cacher_database ! { store, 
+                Cache#cache{identifiers = IDs, content_type = ContentType} 
+            };
         true -> ok
         end,
         {nil, Cache};
@@ -148,9 +165,7 @@ multipart_callback(Next, Cache, LastName) ->
     _ -> 
         {nil, Cache}
     end,
-    fun(N) -> 
-        multipart_callback(N, UpdatedCache, Name) 
-    end.
+    fun(N) -> multipart_callback(N, UpdatedCache, Name) end.
 
 
 parse_identifiers(String) -> string:tokens(String, " ,").

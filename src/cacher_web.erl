@@ -14,7 +14,6 @@
 start(Options) ->
     cacher_database:start(),
 
-
     Loop = fun (Req) ->
                    ?MODULE:loop(Req)
            end,
@@ -44,7 +43,7 @@ find(Req) ->
     RequestElements = request_elements(Req),
     cacher_database ! { find, RequestElements, self() },
     receive
-        {found,  Cache} -> 
+        {ok,  Cache} -> 
             %io:format("found content type: ~p~ndata: ~p~n", [ Cache#cache.content_type,  Cache#cache.data ]),
             % TODO Etag
             Req:ok({Cache#cache.content_type, [], Cache#cache.data});
@@ -59,8 +58,8 @@ expire(Req) ->
     Identifiers = parse_identifiers(IdentifierString),
     cacher_database ! { expire, Identifiers, self() },
     receive
-        200 -> 
-            Req:ok("text/plain", [], "expired");
+        {ok, Caches} -> 
+            Req:ok({"text/plain", [], io_lib:format("expired: ~p", [Caches])});
         _ ->
             Req:respond({500, [], []})
     end.
@@ -80,11 +79,13 @@ store(Req) ->
     }).
 
 request_elements(Req) ->
-    HeaderList = header_list(Req),
+
+    HeaderList = [ {atom_to_list(Key), Value} || {Key,Value} <- header_list(Req)],
+
     NotReserved = fun ({Key, _}) ->
       case Key of
-        'Content-Type' -> false;
-        'Content-Length' -> false;
+        "Content-Type" -> false;
+        "Content-Length" -> false;
         _ -> true
       end
     end,
@@ -118,12 +119,12 @@ multipart_callback(Next, Cache, LastName) ->
             case LastName of
                 identifiers ->
                     Identifiers = <<(Cache#cache.identifiers)/binary, Data/binary>>,
-                    io:format("got ids: ~p~n", [Identifiers]),
+                    % io:format("got ids: ~p~n", [Identifiers]),
                     {identifiers, Cache#cache{identifiers = Identifiers}};
                 cache ->
                     %UpdatedData = Data,
                     UpdatedData = <<(Cache#cache.data)/binary, Data/binary>>,
-                    io:format("got cache: ~p~n", [UpdatedData]),
+                    % io:format("got cache: ~p~n", [UpdatedData]),
                     {cache, Cache#cache{data =  UpdatedData}};
                 X -> {X, Cache}
             end;
@@ -131,9 +132,10 @@ multipart_callback(Next, Cache, LastName) ->
         body_end -> 
             if 
                 Cache#cache.data =/= "" andalso Cache#cache.identifiers =/= "" -> 
+                    %IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
                     IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
                     % io:format("ids: ~p~n", [IDs]),
-                    % io:format("cache: ~p~n", [IDs]),
+                    % io:format("cache: ~p~n", [Cache#cache.data]),
                     cacher_database ! { store, Cache#cache{identifiers = IDs} };
                 true -> 
                     erlang_can_suck_my_dick_for_forcing_me_to_put_this_here

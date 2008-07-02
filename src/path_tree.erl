@@ -11,7 +11,7 @@ find([Branch|RestOfTree], Path) ->
     [PathComponent|RestOfPath] = Path, 
     if Branch#branch.name == PathComponent ->
         if RestOfPath == [] ->
-            {found, Branch#branch.data};
+            {ok, Branch#branch.data};
         true ->
             find(Branch#branch.subtree, RestOfPath)
         end;

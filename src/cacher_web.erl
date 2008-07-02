@@ -84,8 +84,28 @@ store(Req) ->
 
 request_elements(Req) ->
 
-    HeaderList = [ string:to_lower({atom_to_list(Key), Value}) 
-                     || {Key,Value} <- header_list(Req) ],
+    MochiList = mochiweb_headers:to_list(Req:get(headers)),
+    ToLowerString = fun(Key) ->
+        String = if is_atom(Key) ->
+            atom_to_list(Key);
+        true ->
+            Key
+        end,
+        string:to_lower(String)
+    end,
+    H = [ {ToLowerString(Key), Value} || {Key,Value} <- MochiList],
+
+    ValueNotEmpty = fun
+    ({_,  []}) -> false;
+    (_) -> true        
+    end,
+    ExtraElements = lists:filter( ValueNotEmpty, [
+        {"path", Req:get(path)},  % TODO normalize path
+        {"params", Req:parse_qs()}, 
+        {"cookies", Req:parse_cookie()}
+    ]),
+
+    HeaderList = ExtraElements ++ H,
 
     NotReserved = fun ({Key, _}) ->
         case Key of
@@ -140,9 +160,6 @@ multipart_callback(Next, Cache, LastName) ->
 
     body_end -> 
         if Cache#cache.data =/= "" andalso Cache#cache.identifiers =/= "" -> 
-            %IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
-            IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
-
             % Default ContentType is "text/html" if one wasn't set
             % in the upload
             % TODO try to guess based on file extension?
@@ -152,6 +169,8 @@ multipart_callback(Next, Cache, LastName) ->
             _ ->
                 Cache#cache.content_type
             end,
+
+            IDs = parse_identifiers(binary_to_list(Cache#cache.identifiers)),
 
             % io:format("ids: ~p~n", [IDs]),
             % io:format("cache: ~p~n", [Cache#cache.data]),
@@ -169,21 +188,6 @@ multipart_callback(Next, Cache, LastName) ->
 
 
 parse_identifiers(String) -> string:tokens(String, " ,").
-
-header_list(Req) ->
-    MochiList = mochiweb_headers:to_list(Req:get(headers)),
-    HeaderList = [ string:to_lower({atom_to_list(Key), Value}) || {Key,Value} <- MochiList],
-
-    ValueNotEmpty = fun
-    ({_,  []}) -> false;
-    (_) -> true        
-    end,
-    ExtraElements = lists:filter( ValueNotEmpty, [
-        {"path", Req:get(path)},  % TODO normalize path
-        {"params", Req:parse_qs()}, 
-        {"cookies", Req:parse_cookie()}
-    ]),
-    ExtraElements ++ HeaderList.
 
 filter_digest(RequestFilter) ->
     %crypto:start(),

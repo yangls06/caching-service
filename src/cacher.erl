@@ -10,10 +10,8 @@
 
 ensure_started(App) ->
     case application:start(App) of
-        ok ->
-            ok;
-        {error, {already_started, App}} ->
-            ok
+    ok -> ok;
+    {error, {already_started, App}} -> ok
     end.
         
 %% @spec start() -> ok
@@ -31,8 +29,9 @@ stop() ->
     Res.
 
 test() ->
-  ok = path_tree:test(),
-  ok = cacher_database:test(),
-  io:format("Tests passed.~n"),
-  ok.
+    ok = path_tree:test(),
+    ok = cacher_database:test(),
+    ok = cacher_web:test(),
+    io:format("Tests passed.~n"),
+    ok.
 

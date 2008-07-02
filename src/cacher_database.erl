@@ -7,7 +7,7 @@
 
 -module(cacher_database).
 -author('Ryah Dahl <ry@tinyclouds.org>').
--export([start/0, loop/3]).
+-export([start/0, loop/3, proplist_to_path/1]).
 -export([test/0]).
 -include_lib("cacher.hrl").
 
@@ -50,15 +50,16 @@ loop(RequestDatabase, IdDatabase, CacheDatabase) ->
     loop(UpdatedRequestDatabase, UpdatedIdDatabase, UpdatedCacheDatabase). 
 
 proplist_to_path([]) -> [];
+
 proplist_to_path([ { Key, Value } | Rest ]) -> 
-    [ Key | proplist_to_path(Value) ++    proplist_to_path(Rest) ];
+    [ Key | proplist_to_path(Value) ++ proplist_to_path(Rest) ];
+
 proplist_to_path(Node) -> [Node].
 
 expire(Identifiers, IdDatabase, CacheDatabase) ->
     % io:format("expire: ~p~n", [Identifiers]),
     GetDigests = fun (Id, DigestsAcc) ->
-        Digests 
-        = case dict:find(Id, IdDatabase) of
+        Digests = case dict:find(Id, IdDatabase) of
         {ok, Array} -> 
             Array;
         error -> 
@@ -83,14 +84,13 @@ expire(Identifiers, IdDatabase, CacheDatabase) ->
 store(Cache, RequestDatabase, IdDatabase, CacheDatabase) ->
     Path = proplist_to_path(Cache#cache.request_filter),
 
-    Digest = cache_digest(Cache),
-    % io:format("digest: ~p~n", [Digest]),
+    Digest = Cache#cache.digest,
     UpdatedCacheDatabase = dict:store(Digest, Cache, CacheDatabase),
     % io:format("store: ~p~n~n", [CacheDatabase]),
 
     UpdatedRequestDatabase = path_tree:store(RequestDatabase, Path, Digest),
 
-    UpdateCaches = fun (Id, DatabaseAcc) ->
+    AppendDigest = fun (Id, DatabaseAcc) ->
         case dict:find(Id, DatabaseAcc) of
         {ok, Array} -> 
             dict:store(Id, [Digest|Array], DatabaseAcc);
@@ -98,23 +98,11 @@ store(Cache, RequestDatabase, IdDatabase, CacheDatabase) ->
             dict:store(Id, [Digest], DatabaseAcc)
        end
     end,
-    UpdatedIdDatabase = lists:foldr(UpdateCaches, IdDatabase, Cache#cache.identifiers),
+    UpdatedIdDatabase 
+        = lists:foldr(AppendDigest, IdDatabase, Cache#cache.identifiers),
     
     {UpdatedRequestDatabase, UpdatedIdDatabase, UpdatedCacheDatabase}.
 
-
-cache_digest(Cache) ->
-    crypto:start(),
-    Path = proplist_to_path(Cache#cache.request_filter),
-    StringRepresentation = string:join(Path, "::"),
-    crypto:sha(StringRepresentation).
-
-test_cache_digest() ->
-    crypto:start(),
-    Cache = #cache{ request_filter = [ {"A", "B"} ] },
-    cache_digest(Cache),
-
-    ok.
 
 test_proplist_to_path() ->
     %io:format("proplist: ~p~n",[ proplist_to_path( [ { "Accept", "*/*" } ] ) ]),
@@ -148,6 +136,5 @@ test_proplist_to_path() ->
 
 test() ->
     ok = test_proplist_to_path(),
-    ok = test_cache_digest(),
     ok.
 

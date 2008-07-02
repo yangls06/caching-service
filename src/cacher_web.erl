@@ -6,6 +6,7 @@
 -module(cacher_web).
 -author('Ryah Dahl <ry@tinyclouds.org>').
 -export([start/1, stop/0, loop/1]).
+-export([test/0]).
 -include_lib("cacher.hrl").
  
 
@@ -45,8 +46,9 @@ find(Req) ->
     receive
     {ok,  Cache} -> 
         %io:format("found content type: ~p~ndata: ~p~n", [ Cache#cache.content_type,  Cache#cache.data ]),
-        % TODO Etag
-        Req:ok({Cache#cache.content_type, [], Cache#cache.data});
+        ETag = Cache#cache.digest,
+        Headers = [{"ETag", ETag}],
+        Req:ok({Cache#cache.content_type, Headers, Cache#cache.data});
     not_found -> 
         Req:not_found();
     _ ->
@@ -69,14 +71,16 @@ store(Req) ->
     RequestFilter = request_elements(Req),
     Cache = #cache{ request_filter = RequestFilter,
                     data = <<"">>,
-                    identifiers = <<"">>
+                    identifiers = <<"">>,
+                    digest = filter_digest(RequestFilter)
                   },
 
     Callback = fun(Next) -> 
         multipart_callback(Next, Cache, nil) 
     end,
     mochiweb_multipart:parse_multipart_request(Req, Callback),
-    Req:ok({"text/plain", [], io_lib:format("stored: ~p ~n", [Cache]) }).
+    Req:ok({"text/plain", [], "stored"}).
+
 
 request_elements(Req) ->
 
@@ -160,9 +164,24 @@ header_list(Req) ->
     (_) -> true        
     end,
     ExtraElements = lists:filter( ValueNotEmpty, [
-        {"path", Req:get(path)}, 
+        {"path", Req:get(path)},  % TODO normalize path
         {"params", Req:parse_qs()}, 
         {"cookies", Req:parse_cookie()}
     ]),
     ExtraElements ++ HeaderList.
+
+filter_digest(RequestFilter) ->
+    %crypto:start(),
+    Path = cacher_database:proplist_to_path(RequestFilter),
+    StringRepresentation = string:join(Path, "::"),
+    crypto:sha(StringRepresentation).
+
+test_filter_digest() ->
+    crypto:start(),
+    filter_digest([ {"A", "B"} ]),
+    ok.
+
+test() ->
+    ok = test_filter_digest(),
+    ok.
 

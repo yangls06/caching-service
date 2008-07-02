@@ -1,3 +1,6 @@
+%% @author Ryah Dahl <ry@tinycouds.org>
+%% @copyright 2008 Ryah Dahl.
+
 -module(path_tree).
 -author('Ryah Dahl <ry@tinyclouds.org>').
 

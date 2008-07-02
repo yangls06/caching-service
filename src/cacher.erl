@@ -1,10 +1,10 @@
-%% @author author <author@example.com>
-%% @copyright YYYY author.
+%% @author Ryah Dahl <ry@tinycouds.org>
+%% @copyright 2008 Ryah Dahl.
 
 %% @doc TEMPLATE.
 
 -module(cacher).
--author('author <author@example.com>').
+-author('Ryah Dahl <ry@tinyclouds.org>').
 -export([start/0, stop/0]).
 -export([test/0]).
 

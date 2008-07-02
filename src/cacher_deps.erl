@@ -1,12 +1,12 @@
-%% @author author <author@example.com>
-%% @copyright YYYY author.
+%% @author Ryah Dahl <ry@tinycouds.org>
+%% @copyright 2008 Ryah Dahl.
 
 %% @doc Ensure that the relatively-installed dependencies are on the code
 %%      loading path, and locate resources relative
 %%      to this application's path.
 
 -module(cacher_deps).
--author('author <author@example.com>').
+-author('Ryah Dahl <ry@tinyclouds.org>').
 
 -export([ensure/0, ensure/1]).
 -export([get_base_dir/0, get_base_dir/1]).

@@ -24,9 +24,9 @@ loop(RequestDatabase, IdDatabase, CacheDatabase) ->
             Path = proplist_to_path(Cache#cache.request_filter),
 
             Digest = cache_digest(Cache),
-            %io:format("digest: ~p~n", [Digest]),
+            % io:format("digest: ~p~n", [Digest]),
             UpdatedCacheDatabase = dict:store(Digest, Cache, CacheDatabase),
-            io:format("store: ~p~n~n", [CacheDatabase]),
+            % io:format("store: ~p~n~n", [CacheDatabase]),
 
             UpdatedRequestDatabase = path_tree:store(RequestDatabase, Path, Digest),
             

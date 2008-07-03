@@ -7,7 +7,7 @@
 
 -module(cacher_database).
 -author('Ryah Dahl <ry@tinyclouds.org>').
--export([start/0, loop/3, proplist_to_path/1]).
+-export([start/0, loop/3, serialize/1]).
 -export([test/0]).
 -include_lib("cacher.hrl").
 
@@ -41,7 +41,7 @@ loop(RequestDatabase, IdDatabase, CacheDatabase) ->
 
     { find, RequestElements, Client } ->
         % io:format("find: ~p~n", [RequestElements]),
-        Path = proplist_to_path(RequestElements),
+        Path = serialize(RequestElements),
         case path_tree:find(RequestDatabase, Path) of 
         not_found -> 
             Client ! not_found;
@@ -58,12 +58,13 @@ loop(RequestDatabase, IdDatabase, CacheDatabase) ->
     end,
     loop(UpdatedRequestDatabase, UpdatedIdDatabase, UpdatedCacheDatabase). 
 
-proplist_to_path([]) -> [];
+% depth first serialization
+serialize([]) -> [];
 
-proplist_to_path([ { Key, Value } | Rest ]) -> 
-    [ Key | proplist_to_path(Value) ++ proplist_to_path(Rest) ];
+serialize([ { Key, Value } | Rest ]) -> 
+    [ Key | serialize(Value) ++ serialize(Rest) ];
 
-proplist_to_path(Node) -> [Node].
+serialize(Node) -> [Node].
 
 expire(Identifiers, IdDatabase, CacheDatabase) ->
     % io:format("expire: ~p~n", [Identifiers]),
@@ -79,19 +80,14 @@ expire(Identifiers, IdDatabase, CacheDatabase) ->
 
     Digests = lists:foldr(GetDigests, [], Identifiers),
 
-
-    RemoveKeys = fun (Digest, DatabaseAcc) ->
-        dict:erase(Digest, DatabaseAcc)
-    end,
-
     UpdatedCacheDatabase = 
-        lists:foldr(RemoveKeys, CacheDatabase, Digests),
+        lists:foldr(fun dict:erase/2, CacheDatabase, Digests),
     UpdatedIdDatabase = 
-        lists:foldr(RemoveKeys, IdDatabase, Identifiers),
+        lists:foldr(fun dict:erase/2, IdDatabase, Identifiers),
     {UpdatedIdDatabase, UpdatedCacheDatabase}.
 
 store(Cache, RequestDatabase, IdDatabase, CacheDatabase) ->
-    Path = proplist_to_path(Cache#cache.request_filter),
+    Path = serialize(Cache#cache.request_filter),
 
     Digest = Cache#cache.digest,
     UpdatedCacheDatabase = dict:store(Digest, Cache, CacheDatabase),
@@ -115,37 +111,37 @@ store(Cache, RequestDatabase, IdDatabase, CacheDatabase) ->
     {UpdatedRequestDatabase, UpdatedIdDatabase, UpdatedCacheDatabase}.
 
 
-test_proplist_to_path() ->
-    %io:format("proplist: ~p~n",[ proplist_to_path( [ { "Accept", "*/*" } ] ) ]),
+test_serialize() ->
+    %io:format("proplist: ~p~n",[ serialize( [ { "Accept", "*/*" } ] ) ]),
 
     [ "Accept", "*/*" ] 
-    = proplist_to_path( [ { "Accept", "*/*" } ] ),
+    = serialize( [ { "Accept", "*/*" } ] ),
 
     [ "Accept", "*/*", "Params", "Hello", "World" ] 
-    = proplist_to_path( [ { "Accept", "*/*" } 
-                        , { "Params", 
-                            [ { "Hello", "World"}
-                            ]
-                          }
-                        ] ),
+    = serialize( [ { "Accept", "*/*" } 
+                   , { "Params", 
+                       [ { "Hello", "World"}
+                       ]
+                     }
+                 ] ),
 
     [ "Accept", "*/*", "Params", "Hello", "World", "Alpha", "Beta", "Cookies",
         "World", "Hello", "Alpha", "Beta" ] 
-    = proplist_to_path( [ { "Accept", "*/*" } 
-                        , { "Params", 
-                            [ { "Hello", "World"}
-                            , { "Alpha", "Beta"}
-                            ]
-                          }
-                        , { "Cookies",
-                            [ { "World", "Hello"}
-                            , { "Alpha", "Beta"}
-                            ]
-                          }
-                        ] ),
+    = serialize( [ { "Accept", "*/*" } 
+                 , { "Params", 
+                     [ { "Hello", "World"}
+                     , { "Alpha", "Beta"}
+                     ]
+                   }
+                 , { "Cookies",
+                     [ { "World", "Hello"}
+                     , { "Alpha", "Beta"}
+                     ]
+                   }
+                 ] ),
     ok.
 
 test() ->
-    ok = test_proplist_to_path(),
+    ok = test_serialize(),
     ok.
 

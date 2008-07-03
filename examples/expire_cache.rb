@@ -4,7 +4,8 @@ require 'rubygems'
 require 'ruby-debug'
 Debugger.start
 
-def post(ids)
+
+def expire(ids)
   connection = Net::HTTP.new("0.0.0.0", 8000)
 
   p = Net::HTTP::Post.new("/_expire?identifiers=#{ids.join(",")}")
@@ -18,4 +19,4 @@ def post(ids)
   end
 end
 
-post(ARGV)
+expire(ARGV)

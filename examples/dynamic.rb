@@ -9,29 +9,15 @@ class Application
    
   @@connection = Net::HTTP.new("0.0.0.0", 8000)
 
-  BOUNDARY = "AaB03x"
   def post_to_cacher(env, body, content_type, ids)
-    message = ""
-    message << "--#{BOUNDARY}\r\n"
-    { "Content-Disposition" => 'form-data; name="cache"',
-      "Content-Type" => content_type,
-      "Content-Transfer-Encoding" =>  "binary"
-    }.each_pair { |k,v| message << "#{k}: #{v}\r\n" }
-    message << "\r\n#{body}"
-
-    message << "\r\n--#{BOUNDARY}\r\n"
-    { "Content-Disposition" => 'form-data; name="identifiers"',
-    }.each_pair { |k,v| message << "#{k}: #{v}\r\n" }
-    message << "\r\n#{ids.join(",")}"
-
-    message << "\r\n--#{BOUNDARY}--\r\n"
-
-
     post = Net::HTTP::Post.new(env["PATH_INFO"])
-    post["Content-Type"] = "multipart/form-data, boundary=#{BOUNDARY}"
-    post.body = message
+    post["X-Cache-Identifiers"] = ids.join(',')
+    post["Content-Type"] = content_type
+    post["Host"] = nil
+    post.body = body
     res = @@connection.request(post)
-    puts "Cacher response: #{req.code} \n #{req.body}"
+    puts "Cacher response: #{res.code}"
+    puts res.body
   end
 
   def call(env)

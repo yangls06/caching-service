@@ -42,7 +42,7 @@ loop(Req) ->
 
 find(Req) ->
     RequestElements = request_elements(Req),
-    io:format("find. request elements = ~p~n", [RequestElements]),
+    % io:format("find. request elements = ~p~n", [RequestElements]),
     cacher_database ! { find, RequestElements, self() },
     receive
     {ok,  Cache} -> 
@@ -60,7 +60,7 @@ store(Req) ->
     RequestElements = request_elements(Req),
     {RequestFilter, ContentType, Identifiers} 
         = filter_request_elements(RequestElements),
-    io:format("stored. request filter = ~p~n", [RequestFilter]),
+    % io:format("stored. request filter = ~p~n", [RequestFilter]),
     Cache = #cache{ request_filter = RequestFilter,
                     data = Req:recv_body(),
                     content_type = ContentType,
@@ -111,7 +111,8 @@ filter_request_elements(RequestElements) ->
     Identifiers = parse_identifiers(
         proplists:get_value("x-cache-identifiers", RequestElements)
     ),
-    R1 = proplists:delete("content-type", RequestElements),
+    R0 = proplists:delete("host", RequestElements),
+    R1 = proplists:delete("content-type", R0),
     R2 = proplists:delete("x-cache-identifiers", R1),
     R3 = proplists:delete("content-length", R2),
     R4 = proplists:delete("connection", R3),
@@ -128,7 +129,7 @@ filter_digest(RequestFilter) ->
     Path = cacher_database:proplist_to_path(RequestFilter),
     %io:format("path = ~p~n", [Path]),
     StringRepresentation = string:join(Path, "::"),
-    crypto:sha(StringRepresentation).
+    mochihex:to_hex(crypto:sha(StringRepresentation)).
 
 test_filter_digest() ->
     crypto:start(),

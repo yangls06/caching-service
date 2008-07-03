@@ -30,6 +30,15 @@ loop(RequestDatabase, IdDatabase, CacheDatabase) ->
         Client ! ok,
         { RequestDatabase, UIdDatabase, UCacheDatabase };
 
+    { exists, Digest, Client } ->
+        case dict:is_key(Digest, CacheDatabase) of
+        true ->
+            Client ! yes;
+        false ->
+            Client ! no
+        end,
+        { RequestDatabase, IdDatabase, CacheDatabase };
+
     { find, RequestElements, Client } ->
         % io:format("find: ~p~n", [RequestElements]),
         Path = proplist_to_path(RequestElements),

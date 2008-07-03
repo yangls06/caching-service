@@ -26,7 +26,12 @@ stop() ->
 loop(Req) ->
     case Req:get(method) of
     'GET' ->
-        find(Req);
+        case Req:get_header_value("if-none-match") of
+        undefined -> 
+            find(Req);
+        Digest ->
+            exists(Req, Digest)
+        end;
     'POST' ->
         case Req:get(path) of
             "/_expire" ->
@@ -40,15 +45,24 @@ loop(Req) ->
 
 %% Internal API
 
+exists(Req, Digest) ->
+    cacher_database ! { exists, Digest, self() },
+    receive
+    yes ->  
+        Req:respond({304, [], []}); % return Not Modified
+    no ->
+        find(Req)
+    end.
+
 find(Req) ->
     RequestElements = request_elements(Req),
+
     % io:format("find. request elements = ~p~n", [RequestElements]),
     cacher_database ! { find, RequestElements, self() },
     receive
     {ok,  Cache} -> 
         %io:format("found content type: ~p~ndata: ~p~n", [ Cache#cache.content_type,  Cache#cache.data ]),
-        ETag = Cache#cache.digest,
-        Headers = [{"ETag", ETag}],
+        Headers = [{"ETag", Cache#cache.digest}],
         Req:ok({Cache#cache.content_type, Headers, Cache#cache.data});
     not_found -> 
         Req:not_found();
@@ -61,11 +75,12 @@ store(Req) ->
     {RequestFilter, ContentType, Identifiers} 
         = filter_request_elements(RequestElements),
     % io:format("stored. request filter = ~p~n", [RequestFilter]),
+    Body = Req:recv_body(),
     Cache = #cache{ request_filter = RequestFilter,
-                    data = Req:recv_body(),
+                    data = Body,
                     content_type = ContentType,
                     identifiers = Identifiers,
-                    digest = filter_digest(RequestFilter)
+                    digest = filter_digest(Body)
                   },
     %io:format("cache digest = ~p~n", [Cache#cache.digest]),
     cacher_database ! {store, Cache},
@@ -95,16 +110,20 @@ request_elements(Req) ->
         string:to_lower(String)
     end,
     H = [ {ToLowerString(Key), Value} || {Key,Value} <- MochiList],
-    ValueNotEmpty = fun
-    ({_,  []}) -> false;
-    (_) -> true        
+
+    Params = Req:parse_qs(),
+    Cookies = Req:parse_cookie(),
+
+    H1 = if 
+    Params == [] -> H;
+    true -> [{"params", Params} | H]
     end,
-    ExtraElements = lists:filter( ValueNotEmpty, [
-        {"path", Req:get(path)},  % TODO normalize path
-        {"params", Req:parse_qs()}, 
-        {"cookies", Req:parse_cookie()}
-    ]),
-    lists:sort(ExtraElements ++ H).
+    H2 = if 
+    Cookies == [] -> H1;
+    true -> [{"cookies", Cookies} | H1]
+    end,
+
+    [{"path", Req:get(path)} | lists:sort(H2)].
 
 filter_request_elements(RequestElements) ->
     ContentType = proplists:get_value("content-type", RequestElements),
@@ -122,18 +141,15 @@ filter_request_elements(RequestElements) ->
     RequestFilter = R5,
     {RequestFilter, ContentType, Identifiers}.
 
-parse_identifiers(String) -> string:tokens(String, " ,").
+parse_identifiers(String) -> 
+    string:tokens(String, " ,").
 
-filter_digest(RequestFilter) ->
-    %crypto:start(),
-    Path = cacher_database:proplist_to_path(RequestFilter),
-    %io:format("path = ~p~n", [Path]),
-    StringRepresentation = string:join(Path, "::"),
-    mochihex:to_hex(crypto:sha(StringRepresentation)).
+filter_digest(Body) ->
+    mochihex:to_hex(crypto:sha(Body)).
 
 test_filter_digest() ->
     crypto:start(),
-    filter_digest([ {"A", "B"} ]),
+    filter_digest(<<"hello world">>),
     ok.
 
 test() ->

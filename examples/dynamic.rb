@@ -13,7 +13,7 @@ class Application
     post = Net::HTTP::Post.new(env["PATH_INFO"])
     post["X-Cache-Identifiers"] = ids.join(',')
     post["Content-Type"] = content_type
-    post["Host"] = nil
+    #post["Host"] = nil
     post.body = body
     res = @@connection.request(post)
     puts "Cacher response: #{res.code}"
@@ -25,7 +25,7 @@ class Application
     body = "The time is #{Time.now}\n\nenv = #{env.inspect}\n\n"
     content_type = "text/plain"
 
-    post_to_cacher(env, body, content_type, ["123"]) 
+    #post_to_cacher(env, body, content_type, ["123"]) 
 
     [200, {"Content-Type" => content_type}, body]
   end

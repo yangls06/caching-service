@@ -9,5 +9,5 @@ clean:
 	rm -rf $(EBIN_FILES)
 
 test: all
-	$(ERL) -noshell -pa ../ebin -s cacher test -s init stop
+	$(ERL) -noshell -pa ../ebin -pa ../deps/mochiweb/ebin -s cacher test -s init stop
 

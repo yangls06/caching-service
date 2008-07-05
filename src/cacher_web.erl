@@ -79,7 +79,7 @@ store(Req) ->
           content_type = Req:get_header_value("content-type"),
         request_filter = request_elements(Req)
     },
-    %io:format("cache digest = ~p~n", [Cache#cache.digest]),
+    % io:format("cache  = ~p~n", [Cache]),
     cacher_database ! {store, Cache},
     Req:ok({"text/plain", [], "stored"}).
 

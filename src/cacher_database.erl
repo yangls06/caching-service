@@ -7,37 +7,36 @@
 
 -module(cacher_database).
 -author('Ryah Dahl <ry@tinyclouds.org>').
--export([start/0, loop/3, serialize/1]).
+-export([start/0, loop/1, serialize/1]).
 -export([test/0]).
 -include_lib("cacher.hrl").
 
 start() ->
     RequestDatabase = [],
-    IdDatabase = dict:new(),
-    CacheDatabase = dict:new(),
-    Pid = spawn(cacher_database, loop, [RequestDatabase, IdDatabase, CacheDatabase]),
+    ets:new(id_table, [public, named_table, bag]),
+    ets:new(cache_table, [public, named_table]),
+    Pid = spawn(cacher_database, loop, [RequestDatabase]),
     register(cacher_database, Pid).
 
-loop(RequestDatabase, IdDatabase, CacheDatabase) ->
-    {UpdatedRequestDatabase, UpdatedIdDatabase, UpdatedCacheDatabase} = receive
+loop(RequestDatabase) ->
+    UpdatedRequestDatabase = receive
     { store, Cache } ->
-        store(Cache, RequestDatabase, IdDatabase, CacheDatabase);
+        store(Cache, RequestDatabase);
 
     { expire, Identifiers, Client } ->
         
-        {UIdDatabase, UCacheDatabase} 
-            = expire(Identifiers, IdDatabase, CacheDatabase),
+        expire(Identifiers),
         Client ! ok,
-        { RequestDatabase, UIdDatabase, UCacheDatabase };
+        RequestDatabase;
 
     { exists, Digest, Client } ->
-        case dict:is_key(Digest, CacheDatabase) of
+        case ets:member(cache_table, Digest) of
         true ->
             Client ! yes;
         false ->
             Client ! no
         end,
-        { RequestDatabase, IdDatabase, CacheDatabase };
+        RequestDatabase;
 
     { find, RequestElements, Client } ->
         % io:format("find: ~p~n", [RequestElements]),
@@ -46,17 +45,17 @@ loop(RequestDatabase, IdDatabase, CacheDatabase) ->
         not_found -> 
             Client ! not_found;
         {ok, Digest} -> 
-            case dict:find(Digest, CacheDatabase) of
-            {ok, Cache} ->
-                Client ! {ok, Cache};
-            error ->
+            case ets:lookup_element(cache_table, Digest, 2) of
+            badarg ->
                 % path_tree:remove(ReqeustDatabase, Digest)
-                Client ! not_found
+                Client ! not_found;
+            Cache ->
+                Client ! {ok, Cache}
             end
         end,
-        { RequestDatabase, IdDatabase, CacheDatabase }
+        RequestDatabase
     end,
-    loop(UpdatedRequestDatabase, UpdatedIdDatabase, UpdatedCacheDatabase). 
+    loop(UpdatedRequestDatabase). 
 
 % depth first serialization
 serialize([]) -> [];
@@ -66,49 +65,39 @@ serialize([ { Key, Value } | Rest ]) ->
 
 serialize(Node) -> [Node].
 
-expire(Identifiers, IdDatabase, CacheDatabase) ->
+expire(Identifiers) ->
     % io:format("expire: ~p~n", [Identifiers]),
-    GetDigests = fun (Id, DigestsAcc) ->
-        Digests = case dict:find(Id, IdDatabase) of
-        {ok, Array} -> 
-            Array;
-        error -> 
-            []
-        end,
-        Digests ++ DigestsAcc
+    DeleteCache = fun (Digest) ->
+        ets:delete(cache_table, Digest)
     end,
 
-    Digests = lists:foldr(GetDigests, [], Identifiers),
+    ExpireId = fun (Id) ->
+        case ets:lookup_element(id_table, Id, 2) of
+        badarg ->
+            ok;
+        Digests ->
+            lists:foreach(DeleteCache, Digests)
+        end,
+        ok
+    end,
+    lists:foreach(ExpireId, Identifiers),
+    ok.
 
-    UpdatedCacheDatabase = 
-        lists:foldr(fun dict:erase/2, CacheDatabase, Digests),
-    UpdatedIdDatabase = 
-        lists:foldr(fun dict:erase/2, IdDatabase, Identifiers),
-    {UpdatedIdDatabase, UpdatedCacheDatabase}.
-
-store(Cache, RequestDatabase, IdDatabase, CacheDatabase) ->
+store(Cache, RequestDatabase) ->
     Path = serialize(Cache#cache.request_filter),
-
     Digest = Cache#cache.digest,
-    UpdatedCacheDatabase = dict:store(Digest, Cache, CacheDatabase),
-    % io:format("store: ~p~n~n", [CacheDatabase]),
+
+    ets:insert(cache_table, {Digest, Cache}), 
 
     UpdatedRequestDatabase = path_tree:store(RequestDatabase, Path, Digest),
     % io:format("requestdb: ~p~n~n", [UpdatedRequestDatabase]),
 
-
-    AppendDigest = fun (Id, DatabaseAcc) ->
-        case dict:find(Id, DatabaseAcc) of
-        {ok, Array} -> 
-            dict:store(Id, [Digest|Array], DatabaseAcc);
-        error -> 
-            dict:store(Id, [Digest], DatabaseAcc)
-       end
+    InsertIdTable = fun (Id) ->
+        ets:insert(id_table, {Id, Digest})
     end,
-    UpdatedIdDatabase 
-        = lists:foldr(AppendDigest, IdDatabase, Cache#cache.identifiers),
+    lists:foreach(InsertIdTable, Cache#cache.identifiers),
     
-    {UpdatedRequestDatabase, UpdatedIdDatabase, UpdatedCacheDatabase}.
+    UpdatedRequestDatabase.
 
 
 test_serialize() ->

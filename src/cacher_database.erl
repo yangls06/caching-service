@@ -13,6 +13,7 @@
 
 start() ->
     ets:new(path_tree,   [public, named_table, ordered_set]),
+    ets:insert(path_tree, { [], nil, [] }),
     ets:new(cache_table, [public, named_table, ordered_set]),
     ets:new(id_table,    [public, named_table, bag]),
     register(cacher_database, spawn(cacher_database, loop, [])).

@@ -7,27 +7,39 @@
 
 -module(cacher_database).
 -author('Ryah Dahl <ry@tinyclouds.org>').
--export([start/0, loop/1, serialize/1]).
+-export([start/0, loop/0, serialize/1]).
 -export([test/0]).
 -include_lib("cacher.hrl").
 
 start() ->
-    RequestDatabase = [],
-    ets:new(id_table, [public, named_table, bag]),
-    ets:new(cache_table, [public, named_table]),
-    Pid = spawn(cacher_database, loop, [RequestDatabase]),
-    register(cacher_database, Pid).
+    ets:new(path_tree,   [public, named_table, ordered_set]),
+    ets:new(cache_table, [public, named_table, ordered_set]),
+    ets:new(id_table,    [public, named_table, bag]),
+    register(cacher_database, spawn(cacher_database, loop, [])).
 
-loop(RequestDatabase) ->
-    UpdatedRequestDatabase = receive
+loop() ->
+    receive
     { store, Cache } ->
-        store(Cache, RequestDatabase);
+        Path = serialize(Cache#cache.request_filter),
+        Digest = Cache#cache.digest,
+        ets:insert(cache_table, {Digest, Cache}), 
+
+        case path_tree:store(Path, Digest) of
+        ok ->
+            ok;
+        {replaced, Digest} ->
+            ets:delete(cache_table, Digest)
+        end,
+
+        InsertIdTable = fun (Id) ->
+            ets:insert(id_table, {Id, Digest})
+        end,
+        lists:foreach(InsertIdTable, Cache#cache.identifiers);
 
     { expire, Identifiers, Client } ->
         
         expire(Identifiers),
-        Client ! ok,
-        RequestDatabase;
+        Client ! ok;
 
     { exists, Digest, Client } ->
         case ets:member(cache_table, Digest) of
@@ -35,27 +47,24 @@ loop(RequestDatabase) ->
             Client ! yes;
         false ->
             Client ! no
-        end,
-        RequestDatabase;
+        end;
 
     { find, RequestElements, Client } ->
         % io:format("find: ~p~n", [RequestElements]),
         Path = serialize(RequestElements),
-        case path_tree:find(RequestDatabase, Path) of 
+        case path_tree:find(Path) of 
         not_found -> 
             Client ! not_found;
         {ok, Digest} -> 
-            case ets:lookup_element(cache_table, Digest, 2) of
-            badarg ->
-                % path_tree:remove(ReqeustDatabase, Digest)
+            case ets:lookup(cache_table, Digest) of
+            [] ->
                 Client ! not_found;
-            Cache ->
+            [{_, Cache}] ->
                 Client ! {ok, Cache}
             end
-        end,
-        RequestDatabase
+        end
     end,
-    loop(UpdatedRequestDatabase). 
+    loop(). 
 
 % depth first serialization
 serialize([]) -> [];
@@ -67,13 +76,13 @@ serialize(Node) -> [Node].
 
 expire(Identifiers) ->
     % io:format("expire: ~p~n", [Identifiers]),
-    DeleteCache = fun (Digest) ->
+    DeleteCache = fun ({_, Digest}) ->
         ets:delete(cache_table, Digest)
     end,
 
     ExpireId = fun (Id) ->
-        case ets:lookup_element(id_table, Id, 2) of
-        badarg ->
+        case ets:lookup(id_table, Id) of
+        [] ->
             ok;
         Digests ->
             lists:foreach(DeleteCache, Digests)
@@ -82,22 +91,6 @@ expire(Identifiers) ->
     end,
     lists:foreach(ExpireId, Identifiers),
     ok.
-
-store(Cache, RequestDatabase) ->
-    Path = serialize(Cache#cache.request_filter),
-    Digest = Cache#cache.digest,
-
-    ets:insert(cache_table, {Digest, Cache}), 
-
-    UpdatedRequestDatabase = path_tree:store(RequestDatabase, Path, Digest),
-    % io:format("requestdb: ~p~n~n", [UpdatedRequestDatabase]),
-
-    InsertIdTable = fun (Id) ->
-        ets:insert(id_table, {Id, Digest})
-    end,
-    lists:foreach(InsertIdTable, Cache#cache.identifiers),
-    
-    UpdatedRequestDatabase.
 
 
 test_serialize() ->

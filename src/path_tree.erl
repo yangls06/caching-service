@@ -4,148 +4,133 @@
 -module(path_tree).
 -author('Ryah Dahl <ry@tinyclouds.org>').
 
--export([create_subtree/2, store/3, find/2]).
+-export([store/2, find/1]).
 -export([test/0]).
 
--record(branch, { name, data, subtree }).
+% the key is the node's path in the tree
+% Key = ["Path", "/friends", "Cookies", "Params", "skip", "20", "Headers", "Host", "four.livejournal.com"]
+% The object is  { Key, Data, Subdirectories }
+% Where Data = Cache#cache.digest
+% Where Subdirectories = ["Accept"]
 
-find(_, []) -> not_found;
-find([], _) -> not_found;
-% totally unintellegable, i know. sorry
-find(Tree, Path) ->
-    %io:format("find: path ~p~ntree ~p~n", [Path, Tree]),
-    [Branch|RestOfTree] = Tree, 
-    [PathComponent|RestOfPath] = Path, 
-    if Branch#branch.name == PathComponent ->
-        if 
-        RestOfPath == [] ->
-            {ok, Branch#branch.data};
-        Branch#branch.subtree == [] ->
-            {ok, Branch#branch.data};
-        true ->
-            find(Branch#branch.subtree, RestOfPath)
-        end;
-    true -> 
-        case find(RestOfTree, Path) of
-        not_found ->
-            find(Tree, RestOfPath);
-        X -> 
-            X
+find(Query) ->
+    MaximalPath = maximal_path(Query),
+    % io:format("max path ~p~n", [MaximalPath]),
+    case get_data(MaximalPath) of
+    not_found ->
+        error_in_maximal_path;
+    nil ->
+        not_found;
+    Data ->
+        {ok, Data}
+    end.
+
+% returns {replaced, Data} | ok 
+store([], _) -> 
+    error;
+store(Path, Data) ->
+    ParentDir = lists:sublist(Path, length(Path) - 1),
+    Dir = lists:last(Path),
+    % io:format("store path: ~p~nstore data: ~p~n~n", [Path, Data]),
+    add_subdir(ParentDir, Dir),
+
+    case get_data(Path) of
+    not_found ->
+        create_node(Path, Data, []),
+        ok;
+    nil ->
+        create_node(Path, Data, []),
+        ok;
+    Data ->
+        ok;
+    Replaced ->
+        set_data(Path, Data),
+        {replaced, Replaced}
+    end.
+
+add_subdir(Path, SubDir) ->
+    % io:format("add_subdir path: ~p~nadd_subdir subdir: ~p~n~n", [Path, SubDir]),
+    append_subdir(Path, SubDir),
+    case length(Path) of
+    0 -> ok;
+    _ -> 
+        ParentDir = lists:sublist(Path, length(Path) - 1),
+        Dir = lists:last(Path),
+        add_subdir(ParentDir, Dir)
+    end.
+
+maximal_path(Query) ->
+    maximal_path(Query, []).
+
+maximal_path([], Travelled) ->
+    % XXX check to see travelled is in the table?
+    Travelled;
+maximal_path(Query, Travelled) ->
+    % io:format("maxpath query: ~p~nmaxpath travel: ~p~n", [Query, Travelled]),
+    case get_subdirectories(Travelled)  of
+    not_found ->
+        lists:sublist(Travelled, length(Travelled) - 1);
+    SubDirectories ->
+        NotSubDir = fun(C) -> 
+            not lists:member(C, SubDirectories) 
+        end,
+        case reject_head(NotSubDir, Query) of
+        [] ->
+            Travelled;
+        [QueryHead|RemainingQuery] ->
+            maximal_path(RemainingQuery, Travelled ++ [QueryHead])
         end
     end.
 
-create_subtree([LastPathComponent], Data) -> 
-    [#branch{ name = LastPathComponent, 
-              subtree = [], 
-              data = Data 
-    }];
+get_subdirectories(Path) ->
+    case ets:lookup(path_tree, Path) of
+    [] ->
+        not_found;
+    [{_, _, SubDirs}] ->
+        SubDirs
+    end.
 
-create_subtree([PathComponent | RestOfPath], Data) ->
-    [#branch{ name = PathComponent, 
-              subtree = create_subtree(RestOfPath, Data), 
-              data = nil 
-    }].
+set_subdirectories(Path, SubDirs) ->
+    ets:update_element(path_tree, Path, {3, SubDirs}).
 
-store(Tree, [], _) -> Tree;
+get_data(Path) ->
+    case ets:lookup(path_tree, Path) of
+    [] ->
+        not_found;
+    [{_, Data, _}] ->
+        Data
+    end.
 
-store([], Path, Data) -> create_subtree(Path, Data);
+set_data(Path, Data) ->
+    ets:update_element(path_tree, Path, {2, Data}).
+create_node(Path, Data, SubDirs) ->
+    % io:format("create node: ~p~n", [Path]),
+    ets:insert(path_tree, { Path, Data, SubDirs }).
 
-store([Branch | RestOfTree], Path, Data) ->
-    %io:format("~nBranch: ~p~nPath: ~p~n~n", [Branch, Path]),
-    [PathComponent | RestOfPath] = Path,
-    case Branch#branch.name == PathComponent of
+% TODO implement subdirs using a bag table
+% then wont require this extra look up step
+append_subdir(Path, SubDir) ->
+    % io:format("subdirs of ~p are ~p~n", [Path, get_subdirectories(Path)]),
+
+    case get_subdirectories(Path) of
+    not_found ->
+        create_node(Path, nil, [SubDir]);
+    SubDirectories ->
+        set_subdirectories(Path, [SubDir|SubDirectories])
+    end.
+
+reject_head(_, []) ->
+    [];
+reject_head(Pred, [Elem|Rest]) ->
+    case Pred(Elem) of
     true ->
-        NewBranch = case RestOfPath of 
-        [] ->
-            Branch#branch{ data = Data };
-        _ ->
-            NewSubTree = store(Branch#branch.subtree, RestOfPath, Data),
-            Branch#branch{ subtree = NewSubTree }
-        end,
-        [NewBranch | RestOfTree];
-    false -> 
-        [Branch | store(RestOfTree, Path, Data)]
+        reject_head(Pred, Rest);
+    false ->
+        [Elem|Rest]
     end.
 
 test() -> 
-    ok = test_storage(),
     ok.
 
-test_storage() -> 
-    [ #branch{ name = "hello", data = "egg", subtree = [] } ] 
-    = store([], ["hello"], "egg"),
-
-    HelloWorldDB = 
-    [ #branch{ name = "hello", data = nil, subtree = 
-        [ #branch{ name = "world", data = "egg", subtree = [] }]
-    }],
-
-    HelloWorldDB = store([], ["hello", "world"], "egg"),
-
-    HelloWorldMotherDB =
-      [ #branch{ name = "hello", data = nil, subtree = 
-          [ #branch{ name = "world", data = "egg", subtree = [] },
-            #branch{ name = "lisa", data = "salt", subtree = [] }
-          ]
-        }
-      ],
-    HelloWorldMotherDB  = store(HelloWorldDB, ["hello", "lisa"], "salt"),
-
-    TabascoDB =
-      [ #branch{ name = "hello", data = nil, subtree = 
-          [ #branch{ name = "world", data = "egg", subtree = [] },
-            #branch{ name = "lisa", data = "salt", subtree = [] }
-          ]
-        }, 
-        #branch{ name = "another", data = nil, subtree = 
-          [ #branch{ name = "world", data = "tabasco", subtree = [] } ]
-        }
-      ], 
-    TabascoDB = store(HelloWorldMotherDB, ["another", "world"], "tabasco"),
-
-    %io:format("~n~nDEEP~n", []),
-    %io:format("deep: ~p~n",[ store(TabascoDB, ["hello", "lisa", "deep"], "milk")]), 
-
-    DeepDB =
-      [ #branch{ name = "hello", data = nil, subtree = 
-          [ #branch{ name = "world", data = "egg", subtree = [] },
-            #branch{ name = "lisa", data = "salt", subtree = 
-              [ #branch{ name = "deep", data = "milk", subtree = [] } ]
-            }
-          ]
-        }, 
-        #branch{ name = "another", data = nil, subtree = 
-          [ #branch{ name = "world", data = "tabasco", subtree = [] } ]
-        }
-      ], 
-    DeepDB = store(TabascoDB, ["hello", "lisa", "deep"], "milk"),
-
-    % do it again 
-    TabascoDB = store(HelloWorldMotherDB, ["another", "world"], "tabasco"),
 
 
-
-    [ #branch{ name = "hello", data = nil, subtree = 
-        [ #branch{ name = "world", data = "egg", subtree = [] },
-          #branch{ name = "lisa", data = "salt", subtree = [] }
-        ]
-      }, 
-      #branch{ name = "another", data = nil, subtree = 
-        [ #branch{ name = "world", data = "noodles", subtree = [] } ]
-      }
-    ]  =
-    store(HelloWorldMotherDB, ["another", "world"], "noodles"),
-
-
-    [ #branch{ name = "hello", data = nil, subtree = 
-        [ #branch{ name = "world", data = "egg", subtree = [] },
-          #branch{ name = "lisa", data = "salt", subtree = [] }
-        ]
-      }, 
-      #branch{ name = "another", data = "noodles", subtree = 
-        [ #branch{ name = "world", data = "tabasco", subtree = [] } ]
-      }
-    ] =
-    store(TabascoDB, ["another"], "noodles"),
-
-    ok.

@@ -7,7 +7,6 @@
     cacher_sup,
     cacher_web,
     cacher_database,
-    path_tree,
     cacher_deps
   ]},
   {registered, []},

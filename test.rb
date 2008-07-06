@@ -58,6 +58,11 @@ end
 
 
 class TestSimple < Test::Unit::TestCase
+  def test_aaa_get_empty_db
+    gstatus, gheaders, gbody = get("/test")
+    assert_equal 404, gstatus
+  end
+
   def test_simple_post
     headers =  { "Content-Type" => "text/plain", "X-Cache-Identifiers" => "123 321" }
     pstatus, pheaders, pbody = post("/test", headers, "Hello World")
@@ -70,11 +75,11 @@ class TestSimple < Test::Unit::TestCase
 
   def test_double_insert
     headers =  { "Content-Type" => "text/plain", "X-Cache-Identifiers" => "123 321" }
-    pstatus, pheaders, pbody = post("/test", headers, "Hello World")
+    pstatus, _, _ = post("/test", headers, "Hello World")
     assert_equal 200, pstatus
 
     headers =  { "Content-Type" => "text/plain", "X-Cache-Identifiers" => "123 321" }
-    pstatus, pheaders, pbody = post("/test", headers, "Hello World")
+    pstatus, _, _ = post("/test", headers, "Hello World")
     assert_equal 200, pstatus
 
     gstatus, gheaders, gbody = get("/test")

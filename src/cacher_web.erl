@@ -31,7 +31,8 @@ loop(Req) ->
             find(Req);
         Digest ->
             exists(Req, Digest)
-        end;
+        end,
+        ok;
     'POST' ->
         case Req:get(path) of
             "/_expire" ->
@@ -41,7 +42,8 @@ loop(Req) ->
         end;
     _ ->
         Req:respond({501, [], []})
-    end.
+    end,
+    ok.
 
 %% Internal API
 
@@ -115,7 +117,7 @@ request_elements(Req) ->
                , "x-cache-identifiers"
                ],
     FilteredHeaders = lists:foldr(fun proplists:delete/2, Headers, ToDelete),
-    [ { "Path"   , Req:get(path) }
+    [ Req:get(path)
     , { "Cookies", lists:sort(Req:parse_cookie()) }
     , { "Params" , lists:sort(Req:parse_qs()) }
     , { "Headers", lists:sort(FilteredHeaders) }

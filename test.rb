@@ -58,7 +58,18 @@ end
 
 
 class TestSimple < Test::Unit::TestCase
-  def test_aaa_get_empty_db
+  def setup
+    n = File.dirname(__FILE__) + "/start.sh"
+    @t = Thread.new { %x{sh #{n}} }
+    sleep  1
+  end
+
+  def teardown
+    @t.kill
+    %x{killall beam}
+  end
+
+  def test_get_empty_db
     gstatus, gheaders, gbody = get("/test")
     assert_equal 404, gstatus
   end

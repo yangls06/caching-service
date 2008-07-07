@@ -50,14 +50,14 @@ loop(Req) ->
 exists(Req, Digest) ->
     cacher_database ! { exists, Digest, self() },
     receive
-    yes ->  
+    true ->  
         Req:respond({304, [], []}); % return Not Modified
-    no ->
+    false ->
         find(Req)
     end.
 
 find(Req) ->
-    RequestElements = request_elements(Req),
+    RequestElements = request_path(Req),
     % io:format("find. request elements = ~p~n", [RequestElements]),
     cacher_database ! { find, RequestElements, self() },
     receive
@@ -75,11 +75,11 @@ store(Req) ->
     Body = Req:recv_body(),
     XCacheIdentifiers = Req:get_header_value("x-cache-identifiers"),
     Cache = #cache{
-                  data = Body,
-                digest = digest(Body),
-           identifiers = parse_identifiers(XCacheIdentifiers),
-          content_type = Req:get_header_value("content-type"),
-        request_filter = request_elements(Req)
+        data = Body,
+        digest = digest(Body),
+        identifiers = parse_identifiers(XCacheIdentifiers),
+        content_type = Req:get_header_value("content-type"),
+        request_path = request_path(Req)
     },
     % io:format("cache  = ~p~n", [Cache]),
     cacher_database ! {store, Cache},
@@ -89,14 +89,9 @@ expire(Req) ->
     IdentifierString = proplists:get_value("identifiers", Req:parse_qs()),
     Identifiers = parse_identifiers(IdentifierString),
     cacher_database ! { expire, Identifiers, self() },
-    receive
-    ok -> 
-        Req:ok({"text/plain", [], "ok"});
-    _ ->
-        Req:respond({500, [], []})
-    end.
+    Req:ok({"text/plain", [], "ok"}).
 
-request_elements(Req) ->
+request_path(Req) ->
     MochiList = mochiweb_headers:to_list(Req:get(headers)),
     ToLowerString = fun(Key) ->
         String = if is_atom(Key) ->
@@ -117,11 +112,15 @@ request_elements(Req) ->
                , "x-cache-identifiers"
                ],
     FilteredHeaders = lists:foldr(fun proplists:delete/2, Headers, ToDelete),
-    [ Req:get(path)
-    , { "Cookies", lists:sort(Req:parse_cookie()) }
-    , { "Params" , lists:sort(Req:parse_qs()) }
-    , { "Headers", lists:sort(FilteredHeaders) }
-    ]. 
+    [ Req:get(path) ] 
+    ++ ["Cookies" | proplist_flatten(lists:sort(Req:parse_cookie()))]
+    ++ ["Params"  | proplist_flatten(lists:sort(Req:parse_qs()))]
+    ++ ["Headers" | proplist_flatten(lists:sort(FilteredHeaders))].
+
+% depth first serialization
+proplist_flatten([]) -> [];
+proplist_flatten([ { Key, Value } | Rest ]) -> 
+    [ Key, Value | proplist_flatten(Rest) ].
 
 parse_identifiers(String) -> 
     string:tokens(String, " ,").

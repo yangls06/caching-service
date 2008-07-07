@@ -1,1 +1,1 @@
--record(cache, {request_filter, identifiers, content_type, data, digest}).
+-record(cache, {request_path, identifiers, content_type, data, digest}).

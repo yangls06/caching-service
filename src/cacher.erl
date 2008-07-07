@@ -19,6 +19,14 @@ ensure_started(App) ->
 start() ->
     cacher_deps:ensure(),
     ensure_started(crypto),
+%    debughelper:start(),
+%    debughelper:trace(cacher_database, find),
+%    debughelper:trace(cacher_database, maximal_path),
+%    debughelper:trace(cacher_database, add_dir),
+%    debughelper:trace(cacher_database, set_data),
+%    debughelper:trace(cacher_database, get_data),
+%    debughelper:trace(cacher_database, create_node),
+%    debughelper:trace(cacher_database, store),
     application:start(cacher).
 
 %% @spec stop() -> ok
